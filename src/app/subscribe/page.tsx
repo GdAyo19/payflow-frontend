@@ -8,7 +8,7 @@ import { config } from "@/lib/config";
 import { payflow } from "@/lib/payflow";
 import { useWallet } from "@/lib/wallet";
 import { formatPeriod, fromStroops } from "@/lib/format";
-import { AddressLink, Empty, Notice, Panel, TxLink } from "@/components/ui";
+import { AddressLink, Empty, Notice, TxLink } from "@/components/ui";
 
 export default function SubscribePage() {
   const { address, networkMismatch, signXdr } = useWallet();
@@ -105,7 +105,11 @@ export default function SubscribePage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {active.map((plan) => (
-            <Panel key={plan.id} title={plan.name || `Plan #${plan.id}`}>
+            <Link
+              key={plan.id}
+              href={`/plans/${plan.id}`}
+              className="block rounded-xl border border-edge bg-panel p-5 hover:bg-white/5 transition-colors"
+            >
               <div className="space-y-3">
                 <div>
                   <div className="text-2xl font-semibold tabular-nums">
@@ -140,12 +144,15 @@ export default function SubscribePage() {
                   type="button"
                   className="btn-primary w-full"
                   disabled={busy === plan.id || !address || networkMismatch}
-                  onClick={() => void subscribe(plan)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void subscribe(plan);
+                  }}
                 >
                   {busy === plan.id ? "Confirming…" : networkMismatch ? "Wrong network" : address ? "Subscribe" : "Connect wallet"}
                 </button>
               </div>
-            </Panel>
+            </Link>
           ))}
         </div>
       )}
