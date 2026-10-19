@@ -1,5 +1,5 @@
 import { MAX_PAGE, mandateStatus, payflow, type Mandate, type Plan } from "./payflow";
-import type { ApiMandate, ApiPlan, ApiVaultEvent, MerchantSummary } from "./api";
+import type { ApiCharge, ApiMandate, ApiPlan, MerchantSummary } from "./api";
 import { fromStroops } from "./format";
 
 /**
@@ -157,43 +157,56 @@ export function chainMerchantSummary(
   };
 }
 
-/** Whether a vault event increases the vault balance. */
-export function vaultEventIsCredit(event: ApiVaultEvent): boolean {
-  return event.type === "deposit";
+/** A charge row for display: gross, fee, and net as decimal strings. */
+export interface PlanCharge {
+  mandateId: number;
+  subscriber: string;
+  amount: string;
+  fee: string;
+  net: string;
+  txHash: string;
+  ledger: number;
 }
 
-/** Human-readable text label for a vault event type. Carries meaning without
- * relying on colour alone. */
-export function vaultEventLabel(event: ApiVaultEvent): string {
-  switch (event.type) {
-    case "deposit":
-      return "Deposit";
-    case "withdraw":
-      return "Withdrawal";
-    case "debit":
-      return "Debit";
-    default:
-      return String(event.type);
+/** Build a display row for a charge settled against a plan. Amounts never use floats. */
+export function planChargeRow(charge: ApiCharge, subscriber: string): PlanCharge {
+  const amount = BigInt(charge.amount);
+  const fee = BigInt(charge.fee);
+  return {
+    mandateId: charge.mandate_id,
+    subscriber,
+    amount: fromStroops(amount),
+    fee: fromStroops(fee),
+    net: fromStroops(amount - fee),
+    txHash: charge.tx_hash,
+    ledger: charge.ledger,
+  };
+}
+
+/** Whether a mandate can be charged against a subscriber's vault balance.
+ *
+ * `shortfall` is in stroops (smallest unit) and is zero when funded.
+ */
+export interface MandateFunding {
+  status: "funded" | "short";
+  shortfall: bigint;
+}
+
+/** Compare a vault balance against a mandate amount. Returns "short" with the
+ * stroops shortfall when the vault cannot cover one charge, "funded" otherwise.
+ * A null balance (read still in flight or failed) is treated as unknown: not
+ * short, so the UI can show "—" rather than wrongly blocking a charge. */
+export function mandateFunding(
+  vaultBalance: bigint | null,
+  mandateAmount: bigint,
+): MandateFunding {
+  // A null balance (read still in flight or failed) is unknown: don't block
+  // the charge on a missing read. Treat it as not-short.
+  if (vaultBalance === null) {
+    return { status: "funded", shortfall: 0n };
   }
+  const shortfall = mandateAmount - vaultBalance;
+  return shortfall > 0n ? { status: "short", shortfall } : { status: "funded", shortfall: 0n };
 }
 
-/** Signed decimal-string amount for display: deposits are positive, withdrawals
- * and debits are negative. Amounts stay in smallest units until formatted, so
- * no floating point is ever used for money. */
-export function vaultEventAmount(event: ApiVaultEvent): string {
-  const sign = vaultEventIsCredit(event) ? "+" : "-";
-  return `${sign}${fromStroops(event.amount)}`;
-}
-
-/** Tone class key for colour-coding: deposits are "ok" (green), withdrawals
- * and debits are "error" (rose). Colour is an enhancement; the text label and
- * sign carry the meaning. */
-export function vaultEventTone(event: ApiVaultEvent): "ok" | "error" {
-  return vaultEventIsCredit(event) ? "ok" : "error";
-}
-
-/** Return a new array of vault events sorted newest first by ledger. */
-export function sortVaultEventsNewestFirst(events: ApiVaultEvent[]): ApiVaultEvent[] {
-  return [...events].sort((a, b) => b.ledger - a.ledger);
-}
 

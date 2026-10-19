@@ -178,7 +178,10 @@ export default function SubscribePage() {
                   type="button"
                   className="btn-primary w-full"
                   disabled={busy === plan.id || !address || networkMismatch}
-                  onClick={() => void subscribe(plan)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void subscribe(plan);
+                  }}
                 >
                   {busy === plan.id ? "Confirming…" : networkMismatch ? "Wrong network" : address ? "Subscribe" : "Connect wallet"}
                 </button>
