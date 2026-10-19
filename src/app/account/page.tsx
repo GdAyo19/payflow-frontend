@@ -1,19 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type ApiMandate, type ApiVaultEvent } from "@/lib/api";
-import {
-  chainMandatesOf,
-  sortVaultEventsNewestFirst,
-  vaultEventAmount,
-  vaultEventLabel,
-  vaultEventTone,
-} from "@/lib/chain";
+import { api, type ApiMandate } from "@/lib/api";
+import { buildUpcomingChargesCalendar, CALENDAR_FILENAME } from "@/lib/calendar";
+import { chainMandatesOf } from "@/lib/chain";
 import { config } from "@/lib/config";
 import { payflow } from "@/lib/payflow";
 import { useWallet } from "@/lib/wallet";
 import { formatPeriod, formatWhen, fromStroops, toStroops } from "@/lib/format";
-import { AddressLink, Badge, Empty, Notice, Panel, Stat, TxLink } from "@/components/ui";
+import { describeTrialEnd } from "@/lib/trial";
+import { metaFor, useTokenMetas } from "@/lib/token";
+import {
+  AddressLink,
+  Badge,
+  Empty,
+  Notice,
+  Panel,
+  SkeletonRows,
+  Stat,
+  TxLink,
+} from "@/components/ui";
 
 export default function AccountPage() {
   const { address, networkMismatch, signXdr } = useWallet();
@@ -25,6 +31,14 @@ export default function AccountPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+
+  // The vault holds the configured token; each mandate carries the token it
+  // was opened against, which the indexer does not report.
+  const metas = useTokenMetas([
+    config.contracts.token,
+    ...(mandates ?? []).map((m) => m.token ?? config.contracts.token),
+  ]);
+  const vaultMeta = metaFor(metas, config.contracts.token);
 
   const load = useCallback(async () => {
     if (!address) return;
@@ -75,6 +89,32 @@ export default function AccountPage() {
     }
   }
 
+  const activeCount = mandates?.filter((m) => m.status === "Active").length ?? 0;
+
+  /**
+   * The .ics is generated in the browser from the same mandates shown on this
+   * page, so the calendar also works when the indexer is unreachable and the
+   * list came from contract state.
+   */
+  function downloadCalendar() {
+    if (!mandates) return;
+    try {
+      const calendar = buildUpcomingChargesCalendar(mandates);
+      const blob = new Blob([calendar], { type: "text/calendar;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = CALENDAR_FILENAME;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Revoke after the browser has started the download.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not build the calendar file.");
+    }
+  }
+
   if (!address) {
     return (
       <Panel title="My account">
@@ -88,12 +128,14 @@ export default function AccountPage() {
       <div className="grid gap-4 sm:grid-cols-2">
         <Stat
           label="Vault balance"
-          value={balance === null ? "…" : `${fromStroops(balance)} XLM`}
+          loading={balance === null}
+          value={`${fromStroops(balance ?? 0n, 4, vaultMeta.decimals)} ${vaultMeta.symbol}`}
           hint="Available to be charged"
         />
         <Stat
           label="Active subscriptions"
-          value={mandates === null ? "…" : mandates.filter((m) => m.status === "Active").length}
+          loading={mandates === null}
+          value={activeCount}
         />
       </div>
 
@@ -111,7 +153,7 @@ export default function AccountPage() {
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[12rem] flex-1">
             <label className="label" htmlFor="amount">
-              Amount (XLM)
+              Amount ({vaultMeta.symbol})
             </label>
             <input
               id="amount"
@@ -128,7 +170,12 @@ export default function AccountPage() {
             disabled={busy !== null || networkMismatch}
             onClick={() =>
               void run("deposit", () =>
-                payflow.deposit(address, signXdr, config.contracts.token, toStroops(amount)),
+                payflow.deposit(
+                  address,
+                  signXdr,
+                  config.contracts.token,
+                  toStroops(amount, vaultMeta.decimals),
+                ),
               )
             }
           >
@@ -140,7 +187,12 @@ export default function AccountPage() {
             disabled={busy !== null || networkMismatch}
             onClick={() =>
               void run("withdraw", () =>
-                payflow.withdraw(address, signXdr, config.contracts.token, toStroops(amount)),
+                payflow.withdraw(
+                  address,
+                  signXdr,
+                  config.contracts.token,
+                  toStroops(amount, vaultMeta.decimals),
+                ),
               )
             }
           >
@@ -150,64 +202,34 @@ export default function AccountPage() {
       </Panel>
 
       <Panel
-        title="Vault history"
-        subtitle="Deposits, withdrawals and debits behind your balance."
+        title="My subscriptions"
+        subtitle="Add the next charge of each active mandate to Google or Apple Calendar."
+        actions={
+          <button
+            type="button"
+            className="btn-ghost whitespace-nowrap"
+            disabled={activeCount === 0}
+            onClick={downloadCalendar}
+            title={
+              activeCount === 0
+                ? "No active subscriptions to add"
+                : "Download an .ics file for Google or Apple Calendar"
+            }
+          >
+            Add to calendar
+          </button>
+        }
       >
-        {history === null ? (
-          <Empty>Loading history…</Empty>
-        ) : history.length === 0 ? (
-          <Empty>No vault events yet.</Empty>
-        ) : (
-          <div className="space-y-2">
-            {history.map((event) => {
-              const label = vaultEventLabel(event);
-              const amount = vaultEventAmount(event);
-              const isCredit = vaultEventTone(event) === "ok";
-              return (
-                <div
-                  key={event.tx_hash}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-edge p-3"
-                  aria-label={`${label} ${amount} XLM, ledger ${event.ledger}`}
-                >
-                  <div className="flex items-center gap-3 text-sm">
-                    <span className="font-medium">{label}</span>
-                    <span className="mono text-xs text-muted">tx</span>
-                    <TxLink hash={event.tx_hash} />
-                  </div>
-                  <div className="text-right">
-                    <span
-                      className={`font-semibold tabular-nums ${
-                        isCredit ? "text-accent" : "text-rose-300"
-                      }`}
-                    >
-                      {amount} XLM
-                    </span>
-                    <div className="text-xs text-muted">ledger {event.ledger}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {!indexerAvailable && (
-          <Notice tone="info">
-            Vault history is not available in contract-only mode. It requires
-            the payflow-backend indexer (set NEXT_PUBLIC_API_URL). Deposits,
-            withdrawals and debits still update your on-chain balance; only
-            the event list is missing.
-          </Notice>
-        )}
-      </Panel>
-
-      <Panel title="My subscriptions">
         {mandates === null ? (
-          <Empty>Loading…</Empty>
+          <SkeletonRows rows={2} label="Loading subscriptions" />
         ) : mandates.length === 0 ? (
           <Empty>No subscriptions yet.</Empty>
         ) : (
           <div className="space-y-3">
             {mandates.map((m) => {
               const terminal = m.status === "Cancelled" || m.status === "Completed";
+              const meta = metaFor(metas, m.token ?? config.contracts.token);
+              const trial = describeTrialEnd(m);
               return (
                 <div key={m.id} className="rounded-lg border border-edge p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -215,13 +237,18 @@ export default function AccountPage() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium">Mandate #{m.id}</span>
                         <Badge status={m.status} />
+                        {trial && (
+                          <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent">
+                            Free trial
+                          </span>
+                        )}
                         {m.ended_by === "merchant" && (
                           <span className="text-xs text-muted">ended by the merchant</span>
                         )}
                       </div>
                       <div className="mt-1 text-sm text-muted">
-                        {fromStroops(m.amount)} XLM {formatPeriod(m.period)} · to{" "}
-                        <AddressLink value={m.merchant} />
+                        {fromStroops(m.amount, 4, meta.decimals)} {meta.symbol}{" "}
+                        {formatPeriod(m.period)} · to <AddressLink value={m.merchant} />
                       </div>
                       <div className="mt-1 text-xs text-muted">
                         {m.charges_made} charge{m.charges_made === 1 ? "" : "s"} taken
@@ -229,6 +256,11 @@ export default function AccountPage() {
                         {" · next "}
                         {m.status === "Active" ? formatWhen(m.next_charge) : "—"}
                       </div>
+                      {trial && (
+                        <div className="mt-1 text-xs text-accent">
+                          {trial}. Cancel before then and you pay nothing.
+                        </div>
+                      )}
                     </div>
 
                     {!terminal && (
