@@ -8,7 +8,8 @@ import { config } from "@/lib/config";
 import { payflow } from "@/lib/payflow";
 import { useWallet } from "@/lib/wallet";
 import { formatPeriod, fromStroops } from "@/lib/format";
-import { AddressLink, Empty, Notice, TxLink } from "@/components/ui";
+import { metaFor, useTokenMetas } from "@/lib/token";
+import { AddressLink, Empty, Notice, Panel, SkeletonPlanCards, TxLink } from "@/components/ui";
 
 export default function SubscribePage() {
   const { address, networkMismatch, signXdr } = useWallet();
@@ -18,6 +19,9 @@ export default function SubscribePage() {
   const [direct, setDirect] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+
+  // Each plan can name a different token, so the cards read their own.
+  const metas = useTokenMetas((plans ?? []).map((p) => p.token));
 
   const load = useCallback(async () => {
     const res = await api.plans();
@@ -97,24 +101,22 @@ export default function SubscribePage() {
       )}
 
       {plans === null ? (
-        <Empty>Loading plans…</Empty>
+        <SkeletonPlanCards label="Loading plans" />
       ) : active.length === 0 ? (
         <Empty>
           No active plans yet. Publish one from the merchant page to see it here.
         </Empty>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
-          {active.map((plan) => (
-            <Link
-              key={plan.id}
-              href={`/plans/${plan.id}`}
-              className="block rounded-xl border border-edge bg-panel p-5 hover:bg-white/5 transition-colors"
-            >
+          {active.map((plan) => {
+            const meta = metaFor(metas, plan.token);
+            return (
+            <Panel key={plan.id} title={plan.name || `Plan #${plan.id}`}>
               <div className="space-y-3">
                 <div>
                   <div className="text-2xl font-semibold tabular-nums">
-                    {fromStroops(plan.amount)}{" "}
-                    <span className="text-sm font-normal text-muted">XLM</span>
+                    {fromStroops(plan.amount, 4, meta.decimals)}{" "}
+                    <span className="text-sm font-normal text-muted">{meta.symbol}</span>
                   </div>
                   <div className="text-sm text-muted">{formatPeriod(plan.period)}</div>
                 </div>
@@ -152,8 +154,9 @@ export default function SubscribePage() {
                   {busy === plan.id ? "Confirming…" : networkMismatch ? "Wrong network" : address ? "Subscribe" : "Connect wallet"}
                 </button>
               </div>
-            </Link>
-          ))}
+            </Panel>
+            );
+          })}
         </div>
       )}
     </div>

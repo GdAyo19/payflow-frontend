@@ -314,6 +314,15 @@ export const payflow = {
       arg.u64(mandateId),
     ]),
 
+  /**
+   * The protocol's current fee, in basis points. Read live rather than hardcoded
+   * so a merchant previewing a fee split sees the rate their subscribers will
+   * actually be charged: the contract freezes `fee_bps` into each mandate at
+   * subscribe time, but an admin can change it between mandates.
+   */
+  feeBps: (source: string) =>
+    readContract<number>(config.contracts.subscription, "fee_bps", source),
+
   // Index getters are paged: at most MAX_PAGE ids per call, oldest first.
   merchantPlanCount: (source: string, merchant: string) =>
     readContract<number>(config.contracts.planRegistry, "merchant_plan_count", source, [
