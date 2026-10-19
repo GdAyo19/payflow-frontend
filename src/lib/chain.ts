@@ -1,6 +1,6 @@
 import { StrKey } from "@stellar/stellar-sdk";
 import { MAX_PAGE, mandateStatus, payflow, type Mandate, type Plan } from "./payflow";
-import type { ApiCharge, ApiMandate, ApiPlan, MerchantSummary } from "./api";
+import type { ApiCharge, ApiMandate, ApiPlan, ApiVaultEvent, MerchantSummary } from "./api";
 import { availabilityInteger } from "./availability";
 import { fromStroops } from "./format";
 
