@@ -59,6 +59,9 @@ export default function MerchantPage() {
   const [plans, setPlans] = useState<ApiPlan[] | null>(null);
   const [mandates, setMandates] = useState<ApiMandate[] | null>(null);
   const [summary, setSummary] = useState<MerchantSummary | null>(null);
+  // Vault balance per subscriber address, read in parallel with mandates.
+  const [balances, setBalances] = useState<Record<string, bigint | null>>({});
+  const [exporting, setExporting] = useState(false);
   const [feeBps, setFeeBps] = useState<number | null>(null);
 
   const [name, setName] = useState("");
@@ -434,6 +437,9 @@ export default function MerchantPage() {
             {mandates.map((m) => {
               const due = m.status === "Active" && m.next_charge * 1000 <= Date.now();
               const meta = metaFor(metas, m.token ?? config.contracts.token);
+              const balance = balances[m.subscriber] ?? null;
+              const funding = mandateFunding(balance, BigInt(m.amount));
+              const short = funding.status === "short";
               return (
                 <div
                   key={m.id}
@@ -458,7 +464,7 @@ export default function MerchantPage() {
                         <span className="text-muted">Vault balance —</span>
                       ) : short ? (
                         <span className="text-rose-300">
-                          Short by {fromStroops(funding.shortfall)} XLM
+                          Short by {fromStroops(funding.shortfall)} {meta.symbol}
                         </span>
                       ) : (
                         <span className="text-accent">Funded</span>
@@ -482,7 +488,7 @@ export default function MerchantPage() {
                         </button>
                         {short && (
                           <span className="text-xs text-rose-300">
-                            Subscriber vault short by {fromStroops(funding.shortfall)} XLM
+                            Subscriber vault short by {fromStroops(funding.shortfall)} {meta.symbol}
                           </span>
                         )}
                       </>
