@@ -1,9 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type ApiMandate } from "@/lib/api";
+import { api, type ApiMandate, type ApiVaultEvent } from "@/lib/api";
 import { buildUpcomingChargesCalendar, CALENDAR_FILENAME } from "@/lib/calendar";
-import { chainMandatesOf } from "@/lib/chain";
+import {
+  chainMandatesOf,
+  sortVaultEventsNewestFirst,
+  vaultEventAmount,
+  vaultEventLabel,
+  vaultEventTone,
+} from "@/lib/chain";
 import { config } from "@/lib/config";
 import { payflow } from "@/lib/payflow";
 import { useWallet } from "@/lib/wallet";
@@ -199,6 +205,56 @@ export default function AccountPage() {
             {busy === "withdraw" ? "Withdrawing…" : "Withdraw"}
           </button>
         </div>
+      </Panel>
+
+      <Panel
+        title="Vault history"
+        subtitle="Deposits, withdrawals and debits behind your balance."
+      >
+        {history === null ? (
+          <Empty>Loading history…</Empty>
+        ) : history.length === 0 ? (
+          <Empty>No vault events yet.</Empty>
+        ) : (
+          <div className="space-y-2">
+            {history.map((event) => {
+              const label = vaultEventLabel(event);
+              const eventAmount = vaultEventAmount(event);
+              const isCredit = vaultEventTone(event) === "ok";
+              return (
+                <div
+                  key={event.tx_hash}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-edge p-3"
+                  aria-label={`${label} ${eventAmount} ${vaultMeta.symbol}, ledger ${event.ledger}`}
+                >
+                  <div className="flex items-center gap-3 text-sm">
+                    <span className="font-medium">{label}</span>
+                    <span className="mono text-xs text-muted">tx</span>
+                    <TxLink hash={event.tx_hash} />
+                  </div>
+                  <div className="text-right">
+                    <span
+                      className={`font-semibold tabular-nums ${
+                        isCredit ? "text-accent" : "text-rose-300"
+                      }`}
+                    >
+                      {eventAmount} {vaultMeta.symbol}
+                    </span>
+                    <div className="text-xs text-muted">ledger {event.ledger}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {!indexerAvailable && (
+          <Notice tone="info">
+            Vault history is not available in contract-only mode. It requires
+            the payflow-backend indexer (set NEXT_PUBLIC_API_URL). Deposits,
+            withdrawals and debits still update your on-chain balance; only
+            the event list is missing.
+          </Notice>
+        )}
       </Panel>
 
       <Panel

@@ -23,7 +23,7 @@ const wallet = vi.hoisted(() => ({
   signXdr: vi.fn(),
 }));
 
-const apiMock = vi.hoisted(() => ({ mandatesOf: vi.fn() }));
+const apiMock = vi.hoisted(() => ({ mandatesOf: vi.fn(), vaultHistory: vi.fn() }));
 const payflowMock = vi.hoisted(() => ({
   vaultBalance: vi.fn(),
   deposit: vi.fn(),
@@ -34,7 +34,9 @@ const payflowMock = vi.hoisted(() => ({
 const chainMock = vi.hoisted(() => ({ chainMandatesOf: vi.fn() }));
 
 vi.mock("@/lib/wallet", () => ({ useWallet: () => wallet }));
-vi.mock("@/lib/api", () => ({ api: { mandatesOf: apiMock.mandatesOf } }));
+vi.mock("@/lib/api", () => ({
+  api: { mandatesOf: apiMock.mandatesOf, vaultHistory: apiMock.vaultHistory },
+}));
 vi.mock("@/lib/payflow", () => ({ payflow: payflowMock }));
 vi.mock("@/lib/chain", () => ({ chainMandatesOf: chainMock.chainMandatesOf }));
 
@@ -66,6 +68,7 @@ beforeEach(() => {
   wallet.networkMismatch = false;
   payflowMock.vaultBalance.mockResolvedValue(0n);
   apiMock.mandatesOf.mockReset();
+  apiMock.vaultHistory.mockReset();
   chainMock.chainMandatesOf.mockReset();
 });
 
