@@ -39,6 +39,16 @@ export interface ApiCharge {
   ledger: number;
 }
 
+export type VaultEventType = "deposit" | "withdraw" | "debit";
+
+export interface ApiVaultEvent {
+  type: VaultEventType;
+  /** Amount in smallest units (stroops), as a decimal string. Always a positive magnitude; the sign is derived from `type`. */
+  amount: string;
+  tx_hash: string;
+  ledger: number;
+}
+
 export interface MerchantSummary {
   merchant: string;
   activeMandates: number;
@@ -81,6 +91,8 @@ export const api = {
     get<{ mandates: ApiMandate[] }>(`/api/mandates?merchant=${merchant}`),
   charges: (mandateId: number) =>
     get<{ charges: ApiCharge[] }>(`/api/mandates/${mandateId}/charges`),
+  vaultHistory: (address: string) =>
+    get<{ events: ApiVaultEvent[] }>(`/api/vaults/${address}/history`),
   merchantSummary: (address: string) =>
     get<MerchantSummary>(`/api/merchants/${address}/summary`),
   due: () => get<{ now: number; due: ApiMandate[] }>("/api/due"),

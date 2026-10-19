@@ -1,5 +1,6 @@
 import { MAX_PAGE, mandateStatus, payflow, type Mandate, type Plan } from "./payflow";
-import type { ApiMandate, ApiPlan, MerchantSummary } from "./api";
+import type { ApiMandate, ApiPlan, ApiVaultEvent, MerchantSummary } from "./api";
+import { fromStroops } from "./format";
 
 /**
  * Contract-only fallbacks for the lists the indexer normally serves.
@@ -147,3 +148,44 @@ export function chainMerchantSummary(
     mrr: mrr.toString(),
   };
 }
+
+/** Whether a vault event increases the vault balance. */
+export function vaultEventIsCredit(event: ApiVaultEvent): boolean {
+  return event.type === "deposit";
+}
+
+/** Human-readable text label for a vault event type. Carries meaning without
+ * relying on colour alone. */
+export function vaultEventLabel(event: ApiVaultEvent): string {
+  switch (event.type) {
+    case "deposit":
+      return "Deposit";
+    case "withdraw":
+      return "Withdrawal";
+    case "debit":
+      return "Debit";
+    default:
+      return String(event.type);
+  }
+}
+
+/** Signed decimal-string amount for display: deposits are positive, withdrawals
+ * and debits are negative. Amounts stay in smallest units until formatted, so
+ * no floating point is ever used for money. */
+export function vaultEventAmount(event: ApiVaultEvent): string {
+  const sign = vaultEventIsCredit(event) ? "+" : "-";
+  return `${sign}${fromStroops(event.amount)}`;
+}
+
+/** Tone class key for colour-coding: deposits are "ok" (green), withdrawals
+ * and debits are "error" (rose). Colour is an enhancement; the text label and
+ * sign carry the meaning. */
+export function vaultEventTone(event: ApiVaultEvent): "ok" | "error" {
+  return vaultEventIsCredit(event) ? "ok" : "error";
+}
+
+/** Return a new array of vault events sorted newest first by ledger. */
+export function sortVaultEventsNewestFirst(events: ApiVaultEvent[]): ApiVaultEvent[] {
+  return [...events].sort((a, b) => b.ledger - a.ledger);
+}
+

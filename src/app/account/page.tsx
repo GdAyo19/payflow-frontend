@@ -1,8 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type ApiMandate } from "@/lib/api";
-import { chainMandatesOf } from "@/lib/chain";
+import { api, type ApiMandate, type ApiVaultEvent } from "@/lib/api";
+import {
+  chainMandatesOf,
+  sortVaultEventsNewestFirst,
+  vaultEventAmount,
+  vaultEventLabel,
+  vaultEventTone,
+} from "@/lib/chain";
 import { config } from "@/lib/config";
 import { payflow } from "@/lib/payflow";
 import { useWallet } from "@/lib/wallet";
@@ -13,6 +19,8 @@ export default function AccountPage() {
   const { address, networkMismatch, signXdr } = useWallet();
   const [balance, setBalance] = useState<bigint | null>(null);
   const [mandates, setMandates] = useState<ApiMandate[] | null>(null);
+  const [history, setHistory] = useState<ApiVaultEvent[] | null>(null);
+  const [indexerAvailable, setIndexerAvailable] = useState(false);
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -20,9 +28,10 @@ export default function AccountPage() {
 
   const load = useCallback(async () => {
     if (!address) return;
-    const [bal, res] = await Promise.allSettled([
+    const [bal, res, hist] = await Promise.allSettled([
       payflow.vaultBalance(address, address, config.contracts.token),
       api.mandatesOf(address),
+      api.vaultHistory(address),
     ]);
     if (bal.status === "fulfilled") setBalance(bal.value);
 
@@ -35,6 +44,16 @@ export default function AccountPage() {
       } catch {
         setMandates([]);
       }
+    }
+
+    // Vault history lives only in the indexer; without a backend there is no
+    // contract-side event log to fall back to, so we report what is knowable.
+    if (hist.status === "fulfilled" && hist.value) {
+      setHistory(sortVaultEventsNewestFirst(hist.value.events));
+      setIndexerAvailable(true);
+    } else {
+      setHistory([]);
+      setIndexerAvailable(false);
     }
   }, [address]);
 
@@ -128,6 +147,56 @@ export default function AccountPage() {
             {busy === "withdraw" ? "Withdrawing…" : "Withdraw"}
           </button>
         </div>
+      </Panel>
+
+      <Panel
+        title="Vault history"
+        subtitle="Deposits, withdrawals and debits behind your balance."
+      >
+        {history === null ? (
+          <Empty>Loading history…</Empty>
+        ) : history.length === 0 ? (
+          <Empty>No vault events yet.</Empty>
+        ) : (
+          <div className="space-y-2">
+            {history.map((event) => {
+              const label = vaultEventLabel(event);
+              const amount = vaultEventAmount(event);
+              const isCredit = vaultEventTone(event) === "ok";
+              return (
+                <div
+                  key={event.tx_hash}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-edge p-3"
+                  aria-label={`${label} ${amount} XLM, ledger ${event.ledger}`}
+                >
+                  <div className="flex items-center gap-3 text-sm">
+                    <span className="font-medium">{label}</span>
+                    <span className="mono text-xs text-muted">tx</span>
+                    <TxLink hash={event.tx_hash} />
+                  </div>
+                  <div className="text-right">
+                    <span
+                      className={`font-semibold tabular-nums ${
+                        isCredit ? "text-accent" : "text-rose-300"
+                      }`}
+                    >
+                      {amount} XLM
+                    </span>
+                    <div className="text-xs text-muted">ledger {event.ledger}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {!indexerAvailable && (
+          <Notice tone="info">
+            Vault history is not available in contract-only mode. It requires
+            the payflow-backend indexer (set NEXT_PUBLIC_API_URL). Deposits,
+            withdrawals and debits still update your on-chain balance; only
+            the event list is missing.
+          </Notice>
+        )}
       </Panel>
 
       <Panel title="My subscriptions">
