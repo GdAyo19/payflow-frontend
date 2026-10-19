@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { api, type ApiMandate, type ApiPlan, type MerchantSummary } from "@/lib/api";
 import { buildCsv, downloadCsv, exportFilename, type ChargeRow } from "@/lib/csv";
 import { chainMandatesFor, chainMerchantSummary, chainPlansOf, endable, mandateFunding } from "@/lib/chain";
@@ -13,14 +14,15 @@ import {
   formatAmount,
   formatFeeBps,
   formatPeriod,
-  formatWhen,
   fromStroops,
   type FeeSplit,
   type TokenMeta,
 } from "@/lib/format";
 import { metaFor, useTokenMetas } from "@/lib/token";
 import { supportsTrials, trialBadge, TRIAL_OPTIONS } from "@/lib/trial";
-import { AddressLink, Badge, Empty, Notice, Panel, SkeletonRows, Stat, TxLink } from "@/components/ui";
+import { AmountInput } from "@/components/AmountInput";
+import { CopyButton } from "@/components/CopyButton";
+import { AddressLink, Badge, Empty, Notice, Panel, SkeletonRows, Stat, TimeAgo, TxLink } from "@/components/ui";
 
 const PERIOD_OPTIONS = [
   { label: "Every minute (demo)", value: 60 },
@@ -148,6 +150,16 @@ export default function MerchantPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // The shareable catalogue link, built after mount so the statically
+  // prerendered markup (no window) and the hydrated one cannot disagree.
+  const [publicUrl, setPublicUrl] = useState("");
+  useEffect(() => {
+    if (!address) return;
+    setPublicUrl(
+      `${window.location.origin}${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/m/?address=${address}`,
+    );
+  }, [address]);
 
   // Read once per wallet, not on every reload: the protocol fee only moves
   // when an admin changes it, and this is a preview rather than a gate — if the
@@ -282,22 +294,22 @@ export default function MerchantPage() {
       >
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[10rem] flex-1">
-            <label className="label" htmlFor="price">
-              Price ({tokenMeta.symbol})
-            </label>
-            <input
+            <AmountInput
               id="price"
-              className={`input ${showPriceError ? "border-rose-500/60 focus:border-rose-500/60" : ""}`}
-              inputMode="decimal"
-              placeholder="1.0"
+              label={`Price (${tokenMeta.symbol})`}
               value={price}
-              onChange={(e) => {
-                setPrice(e.target.value);
+              onChange={(next) => {
+                setPrice(next);
                 setPriceTouched(true);
               }}
               onBlur={() => setPriceTouched(true)}
-              aria-invalid={showPriceError}
-              aria-describedby="price-preview"
+              decimals={tokenMeta.decimals}
+              placeholder="1.0"
+              disabled={busy !== null}
+              // The form renders the price message in the fee-preview slot
+              // below, so the field must not repeat it inline.
+              hideError
+              describedBy="price-preview"
             />
           </div>
           <div className="min-w-[12rem] flex-1">
@@ -397,7 +409,20 @@ export default function MerchantPage() {
         </p>
       </Panel>
 
-      <Panel title="My plans">
+      <Panel
+        title="My plans"
+        actions={
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/m/?address=${address}`}
+              className="btn-ghost whitespace-nowrap"
+            >
+              Public page
+            </Link>
+            <CopyButton value={publicUrl} label="public page link" />
+          </div>
+        }
+      >
         {plans === null ? (
           <SkeletonRows rows={2} label="Loading plans" />
         ) : plans.length === 0 ? (
@@ -489,7 +514,7 @@ export default function MerchantPage() {
                     <div className="mt-1 text-xs text-muted">
                       {fromStroops(m.amount, 4, meta.decimals)} {meta.symbol}{" "}
                       {formatPeriod(m.period)} · {m.charges_made} settled · next{" "}
-                      {m.status === "Active" ? formatWhen(m.next_charge) : "—"}
+                      {m.status === "Active" ? <TimeAgo value={m.next_charge} /> : "—"}
                     </div>
                     <div className="mt-1 text-xs font-medium">
                       {balance === null ? (

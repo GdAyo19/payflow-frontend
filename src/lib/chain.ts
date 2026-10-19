@@ -1,5 +1,7 @@
+import { StrKey } from "@stellar/stellar-sdk";
 import { MAX_PAGE, mandateStatus, payflow, type Mandate, type Plan } from "./payflow";
-import type { ApiCharge, ApiMandate, ApiPlan, ApiVaultEvent, MerchantSummary } from "./api";
+import type { ApiCharge, ApiMandate, ApiPlan, MerchantSummary } from "./api";
+import { availabilityInteger } from "./availability";
 import { fromStroops } from "./format";
 
 /**
@@ -32,7 +34,21 @@ function planToApi(plan: Plan): ApiPlan {
     // contract built before payflow-contract#9 cannot say whether the plan has
     // a trial, and 0 would claim it does not.
     ...(plan.trial !== undefined ? { trial: Number(plan.trial) } : {}),
+    ...(plan.available_until !== undefined ? { available_until: availabilityInteger(plan.available_until) } : {}),
+    ...(plan.max_subscribers !== undefined ? { max_subscribers: availabilityInteger(plan.max_subscribers) } : {}),
   };
+}
+
+async function planWithAvailability(source: string, plan: Plan): Promise<ApiPlan> {
+  const result = planToApi(plan);
+  if (result.max_subscribers) {
+    try {
+      result.subscriber_count = availabilityInteger(await payflow.planSubscriberCount(source, plan.id));
+    } catch {
+      // Old contracts and failed reads cannot report seats. Never assume zero.
+    }
+  }
+  return result;
 }
 
 /** Exported for tests. */
@@ -100,7 +116,7 @@ export async function chainPlans(source: string): Promise<ApiPlan[]> {
   const newest = Math.min(MAX_PLAN_PROBE, Math.max(0, next - 1));
   const ids = Array.from({ length: newest }, (_, i) => next - 1 - i);
   const found = await settledValues(ids.map((id) => payflow.getPlan(source, id)));
-  return found.map(planToApi).sort((a, b) => b.id - a.id);
+  return (await Promise.all(found.map((p) => planWithAvailability(source, p)))).sort((a, b) => b.id - a.id);
 }
 
 export async function chainPlansOf(source: string, merchant: string): Promise<ApiPlan[]> {
@@ -135,6 +151,18 @@ export async function chainMandatesFor(
 /** A merchant can end a mandate that could still be charged. */
 export function endable(m: Pick<ApiMandate, "status">): boolean {
   return m.status === "Active" || m.status === "Paused";
+}
+
+/**
+ * The merchant address a shareable `/m/?address=G…` link points at, or null
+ * when the parameter is missing or is not a valid Stellar account. Exported
+ * for tests: a typo'd link must land on the "check your link" state, not on
+ * an RPC call that fails somewhere later.
+ */
+export function merchantFromParam(raw: string | null): string | null {
+  if (!raw) return null;
+  const value = raw.trim();
+  return StrKey.isValidEd25519PublicKey(value) ? value : null;
 }
 
 /** Merchant totals derived from mandates alone. Charge history needs the indexer. */

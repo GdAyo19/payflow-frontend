@@ -88,7 +88,9 @@ describe("MerchantPage publish form", () => {
     expect(empty.disabled).toBe(true);
     expect(screen.queryByText("Enter an amount.")).toBeNull();
 
-    fireEvent.change(screen.getByLabelText(/price/i), { target: { value: "abc" } });
+    // Letters are stripped at the keyboard now, so the garbage that reaches
+    // the parser is a malformed number like 1.2.3 (issue #46's filter).
+    fireEvent.change(screen.getByLabelText(/price/i), { target: { value: "1.2.3" } });
     expect(
       (screen.getByRole("button", { name: /publish plan/i }) as HTMLButtonElement).disabled,
     ).toBe(true);
@@ -111,6 +113,21 @@ describe("MerchantPage publish form", () => {
     expect(screen.getByText(/At most 7 decimal places\./i)).toBeTruthy();
   });
 
+  it("accepts the separators the merchant's locale uses", async () => {
+    // Issue #46: a comma-decimal keyboard produces "1,5" or "1.234,5";
+    // both must publish the same bigint as their dot-decimal twins.
+    render(<MerchantPage />);
+
+    const publish = await fillPrice("1.234,5");
+    expect(publish.disabled).toBe(false);
+
+    fireEvent.click(publish);
+    await waitFor(() => expect(payflowMock.createPlan).toHaveBeenCalled());
+    expect(payflowMock.createPlan.mock.calls[0]?.[2]).toMatchObject({
+      amount: 12_345_000_000n,
+    });
+  });
+
   it("rejects a price of zero, which the contract would reject too", async () => {
     render(<MerchantPage />);
 
@@ -122,7 +139,7 @@ describe("MerchantPage publish form", () => {
 
   it("marks the field invalid and points it at the message for screen readers", async () => {
     render(<MerchantPage />);
-    await fillPrice("nope");
+    await fillPrice("1.2.3");
 
     const field = screen.getByLabelText(/price/i);
     expect(field.getAttribute("aria-invalid")).toBe("true");
